@@ -1,32 +1,32 @@
 import SwiftUI
+import UIKit
 
 struct CaptureView: View {
     @EnvironmentObject var pairing: PairingStore
     @StateObject private var camera = CameraManager()
     @StateObject private var gate = MotionGate()
     @StateObject private var queue = UploadQueue()
+    @StateObject private var connection = ConnectionMonitor()
 
     @State private var autoCapture = true
     @State private var showUnpairConfirm = false
+    @State private var flashOpacity: Double = 0
 
     var body: some View {
-        ZStack {
-            CameraPreview(session: camera.session)
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    gate.forceRearm()
-                    camera.capture()
-                }
-                .onAppear { wire(); Task { await camera.start() } }
-                .onChange(of: pairing.bond) { _, bond in queue.bond = bond }
-
-            VStack {
-                topBar
-                Spacer()
-                bottomBar
+        Group {
+            if camera.permissionDenied {
+                PermissionDeniedView()
+            } else {
+                captureScene
             }
-            .padding()
+        }
+        .onAppear {
+            // Prevent the phone from auto-locking while scanning — camera
+            // session pauses on lock, missing captures.
+            UIApplication.shared.isIdleTimerDisabled = true
+        }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
         }
         .alert("Unpair iPhone?", isPresented: $showUnpairConfirm) {
             Button("Unpair", role: .destructive) { pairing.clear() }
@@ -36,17 +36,60 @@ struct CaptureView: View {
         }
     }
 
+    private var captureScene: some View {
+        ZStack {
+            CameraPreview(session: camera.session)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { triggerCapture() }
+                .onAppear {
+                    wire()
+                    Task { await camera.start() }
+                    connection.start(bond: pairing.bond)
+                }
+                .onChange(of: pairing.bond) { _, bond in
+                    queue.bond = bond
+                    connection.start(bond: bond)
+                }
+
+            // Capture-fired flash (screen briefly whites out)
+            Color.white
+                .opacity(flashOpacity)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+
+            VStack {
+                topBar
+                Spacer()
+                bottomBar
+            }
+            .padding()
+        }
+    }
+
     private var topBar: some View {
-        HStack {
+        HStack(spacing: 8) {
             Button { showUnpairConfirm = true } label: {
-                Label(pairing.bond?.peerName ?? "Paired",
-                      systemImage: "desktopcomputer")
-                    .labelStyle(.titleAndIcon)
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(.black.opacity(0.5), in: Capsule())
-                    .foregroundStyle(.white)
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(connectionColor)
+                        .frame(width: 8, height: 8)
+                    Image(systemName: "desktopcomputer")
+                    Text(connectionLabel)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(.black.opacity(0.5), in: Capsule())
+                .foregroundStyle(.white)
             }
             Spacer()
+            if camera.torchSupported {
+                Button { camera.toggleTorch() } label: {
+                    Image(systemName: camera.torchOn ? "flashlight.on.fill" : "flashlight.off.fill")
+                        .foregroundStyle(camera.torchOn ? .yellow : .white)
+                        .frame(width: 32, height: 32)
+                        .background(.black.opacity(0.5), in: Circle())
+                }
+            }
             Toggle("Auto", isOn: $autoCapture)
                 .toggleStyle(.button)
                 .tint(.blue)
@@ -54,6 +97,22 @@ struct CaptureView: View {
                 .padding(.horizontal, 10).padding(.vertical, 6)
                 .background(.black.opacity(0.5), in: Capsule())
                 .foregroundStyle(.white)
+        }
+    }
+
+    private var connectionColor: Color {
+        switch connection.state {
+        case .online:  return .green
+        case .offline: return .red
+        case .unknown: return .gray
+        }
+    }
+
+    private var connectionLabel: String {
+        switch connection.state {
+        case .online:  return pairing.bond?.peerName ?? "Paired"
+        case .offline: return "Mac offline"
+        case .unknown: return "Connecting…"
         }
     }
 
@@ -102,7 +161,7 @@ struct CaptureView: View {
             Text(queue.pendingCount > 0 ? "queued: \(queue.pendingCount)" : "uploaded")
                 .font(.caption)
                 .foregroundStyle(queue.pendingCount > 0 ? .orange : .secondary)
-            if let err = queue.lastError {
+            if let err = queue.lastError, connection.state == .offline {
                 Text(err).font(.caption2).foregroundStyle(.red).lineLimit(1)
             }
         }
@@ -111,13 +170,33 @@ struct CaptureView: View {
         .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
     }
 
+    // MARK: - Capture + feedback
+
+    private func triggerCapture() {
+        gate.forceRearm()
+        camera.capture()
+    }
+
+    private func onCaptureCompleted() {
+        // Subtle screen flash so the user knows a capture happened.
+        flashOpacity = 0.5
+        withAnimation(.easeOut(duration: 0.25)) {
+            flashOpacity = 0
+        }
+        // Haptic matches the native Camera app's shutter tap.
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
     private func wire() {
         queue.bond = pairing.bond
         camera.onSample = { [weak gate] buf in
             Task { @MainActor in gate?.ingest(buffer: buf) }
         }
         camera.onCaptured = { [weak queue] data in
-            Task { @MainActor in queue?.submit(data) }
+            Task { @MainActor in
+                queue?.submit(data)
+                onCaptureCompleted()
+            }
         }
         gate.onEvent = { [weak camera] event in
             guard event == .stable, autoCapture else { return }

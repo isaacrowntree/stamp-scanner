@@ -2,7 +2,7 @@ import Foundation
 
 /// Smart-folder style filters for the sidebar.
 enum SmartFolder: String, Identifiable, CaseIterable, Hashable {
-    case all, recent, unidentified, flagged, duplicates
+    case all, recent, unidentified, flagged, partials, obscured, duplicates
 
     var id: String { rawValue }
     var label: String {
@@ -11,6 +11,8 @@ enum SmartFolder: String, Identifiable, CaseIterable, Hashable {
         case .recent:       return "Recent"
         case .unidentified: return "Unidentified"
         case .flagged:      return "Flagged"
+        case .partials:     return "Partials"
+        case .obscured:     return "Obscured"
         case .duplicates:   return "Duplicates"
         }
     }
@@ -20,6 +22,8 @@ enum SmartFolder: String, Identifiable, CaseIterable, Hashable {
         case .recent:       return "clock"
         case .unidentified: return "questionmark.circle"
         case .flagged:      return "flag"
+        case .partials:     return "scissors"
+        case .obscured:     return "eye.slash"
         case .duplicates:   return "rectangle.on.rectangle"
         }
     }

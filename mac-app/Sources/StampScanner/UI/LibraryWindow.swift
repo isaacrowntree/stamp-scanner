@@ -3,6 +3,7 @@ import SwiftUI
 struct LibraryWindow: View {
     @EnvironmentObject var server: PhoneIngestServer
     @EnvironmentObject var worker: WorkerLauncher
+    @EnvironmentObject var dbWatcher: DatabaseWatcher
 
     @State private var filter = LibraryFilter()
     @State private var selection: Set<String> = []
@@ -13,13 +14,14 @@ struct LibraryWindow: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(filter: $filter)
+            SidebarView(filter: $filter, dbTick: dbWatcher.tick)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
         } detail: {
             LibraryGridView(
                 filter: filter,
                 selection: $selection,
-                highlightJobId: nil
+                highlightJobId: nil,
+                dbTick: dbWatcher.tick
             )
             .toolbar {
                 LibraryToolbar(
@@ -31,7 +33,7 @@ struct LibraryWindow: View {
                 )
             }
             .inspector(isPresented: $showInspector) {
-                DetailPanel(selection: selection)
+                DetailPanel(selection: selection, dbTick: dbWatcher.tick)
                     .inspectorColumnWidth(min: 320, ideal: 380, max: 500)
             }
         }

@@ -7,6 +7,9 @@ import GRDB
 /// `write { }` closures, which are short.
 @MainActor
 enum LibraryDatabase {
+    // swiftlint:disable force_try
+    // App-bootstrap: if any of these fail the app cannot function, so
+    // crashing is the correct response (no meaningful recovery path).
     static let shared: DatabasePool = {
         try! FileManager.default.createDirectory(
             at: Paths.appSupport, withIntermediateDirectories: true)
@@ -17,9 +20,11 @@ enum LibraryDatabase {
         try! migrator.migrate(pool)
         return pool
     }()
+    // swiftlint:enable force_try
 
     /// Schema migrations. Add cases here — never edit an existing one.
-    private static var migrator: DatabaseMigrator {
+    /// `internal` so tests can apply the live schema to a throwaway DB.
+    static var migrator: DatabaseMigrator {
         var m = DatabaseMigrator()
         m.registerMigration("v1_stamps") { db in
             try db.create(table: "stamps", ifNotExists: true) { t in
@@ -64,6 +69,28 @@ enum LibraryDatabase {
             if !columns.contains("rotationVersion") {
                 try db.alter(table: "stamps") { t in
                     t.add(column: "rotationVersion", .integer).notNull().defaults(to: 0)
+                }
+            }
+        }
+        m.registerMigration("v6_issueTags") { db in
+            let columns = try db.columns(in: "stamps").map(\.name)
+            if !columns.contains("issueTags") {
+                try db.alter(table: "stamps") { t in
+                    t.add(column: "issueTags", .text).notNull().defaults(to: "[]")
+                }
+            }
+            if !columns.contains("duplicateOf") {
+                try db.alter(table: "stamps") { t in
+                    t.add(column: "duplicateOf", .text)
+                }
+            }
+        }
+        m.registerMigration("v7_dismissedIssueTags") { db in
+            let columns = try db.columns(in: "stamps").map(\.name)
+            if !columns.contains("dismissedIssueTags") {
+                try db.alter(table: "stamps") { t in
+                    t.add(column: "dismissedIssueTags", .text)
+                        .notNull().defaults(to: "[]")
                 }
             }
         }

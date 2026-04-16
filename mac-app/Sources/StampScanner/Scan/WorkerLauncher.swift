@@ -71,19 +71,17 @@ final class WorkerLauncher: ObservableObject {
         process = nil
         heartbeatTimer?.invalidate()
         heartbeatTimer = nil
-        let exitedCleanly = proc.terminationReason == .exit && proc.terminationStatus == 0
-        if exitedCleanly {
-            health = .dead
-            return
-        }
-        // Exponential backoff, capped at 30s; surface banner after 3 failures.
+        // We never intentionally stop the worker during normal operation
+        // — even a clean exit means something went wrong (SIGTERM from us
+        // due to stale heartbeat, OS kill, crash, etc). Always restart
+        // with a short backoff.
         restartCount += 1
-        let delay = min(30.0, pow(2.0, Double(restartCount)))
-        lastError = "worker died, restarting in \(Int(delay))s (attempt \(restartCount))"
+        let delay = min(15.0, pow(1.5, Double(restartCount)))
+        lastError = "worker exited (code \(proc.terminationStatus)), restarting in \(Int(delay))s (attempt \(restartCount))"
         health = .dead
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            if self.restartCount < 6 { self.start() }
+            if self.restartCount < 20 { self.start() }
         }
     }
 
@@ -97,17 +95,22 @@ final class WorkerLauncher: ObservableObject {
     private func checkHeartbeat() {
         let attrs = try? FileManager.default.attributesOfItem(atPath: Paths.heartbeat.path)
         guard let mtime = attrs?[.modificationDate] as? Date else {
-            // Starting up — give it ~20s before flagging stale.
-            if Date().timeIntervalSince(lastLaunch) > 20 {
+            // Starting up — give it ~30s before flagging stale. First run
+            // needs to load Qwen3-VL or SAM 3 weights which takes a while.
+            if Date().timeIntervalSince(lastLaunch) > 30 {
                 health = .stale
             }
             return
         }
         let age = Date().timeIntervalSince(mtime)
-        if age < 6 {
+        // Thresholds are generous: SAM jobs on a backlog can take 30s+
+        // total (e.g. 3 back-to-back captures each taking ~10s). The
+        // worker now touches heartbeat between every file, but we stay
+        // tolerant in case the machine is under load.
+        if age < 15 {
             if health != .healthy { restartCount = 0 }
             health = .healthy
-        } else if age < 20 {
+        } else if age < 60 {
             health = .stale
         } else {
             health = .dead

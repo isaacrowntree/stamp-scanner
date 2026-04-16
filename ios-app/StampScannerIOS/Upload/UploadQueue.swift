@@ -23,6 +23,9 @@ final class UploadQueue: ObservableObject {
     private var flushing = false
 
     init() {
+        // Caches dir lookup cannot fail in a sandboxed iOS app; if it ever
+        // did the app couldn't persist anything, so crashing here is correct.
+        // swiftlint:disable:next force_try
         let caches = try! FileManager.default.url(
             for: .cachesDirectory, in: .userDomainMask,
             appropriateFor: nil, create: true)

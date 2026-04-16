@@ -42,6 +42,18 @@ struct StampRecord: Codable, Equatable, Identifiable, Hashable {
     /// disk after we rewrite it.
     var rotationVersion: Int = 0
 
+    /// Quality-issue tags produced by IssueDetector. Possible values:
+    ///   "duplicate", "obscured", "partial"
+    /// Stored as a JSON array in SQLite so multiple issues can coexist.
+    var issueTags: [String] = []
+    /// Tags the user has explicitly dismissed for this record (e.g. the
+    /// detector flagged it as partial but the user confirmed it's a real
+    /// landscape commemorative). Subsequent detector runs won't re-tag
+    /// a dismissed issue on this record.
+    var dismissedIssueTags: [String] = []
+    /// When isDuplicate, points at the "keeper" record's id. Nil otherwise.
+    var duplicateOf: String?
+
     var cropURL: URL {
         Paths.capturesDir.appendingPathComponent(cropPath)
     }
@@ -95,6 +107,9 @@ extension StampRecord: FetchableRecord, PersistableRecord {
         static let perceptualHash = Column(CodingKeys.perceptualHash)
         static let oriented = Column(CodingKeys.oriented)
         static let rotationVersion = Column(CodingKeys.rotationVersion)
+        static let issueTags = Column(CodingKeys.issueTags)
+        static let dismissedIssueTags = Column(CodingKeys.dismissedIssueTags)
+        static let duplicateOf = Column(CodingKeys.duplicateOf)
     }
 
     func encode(to container: inout PersistenceContainer) throws {
@@ -129,6 +144,11 @@ extension StampRecord: FetchableRecord, PersistableRecord {
         container[Columns.perceptualHash] = perceptualHash
         container[Columns.oriented] = oriented
         container[Columns.rotationVersion] = rotationVersion
+        container[Columns.issueTags] = (try? JSONEncoder().encode(issueTags))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        container[Columns.dismissedIssueTags] = (try? JSONEncoder().encode(dismissedIssueTags))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        container[Columns.duplicateOf] = duplicateOf
     }
 
     init(row: Row) throws {
@@ -164,5 +184,12 @@ extension StampRecord: FetchableRecord, PersistableRecord {
         perceptualHash = row[Columns.perceptualHash]
         oriented = row[Columns.oriented] ?? false
         rotationVersion = row[Columns.rotationVersion] ?? 0
+        let issuesStr: String = row[Columns.issueTags] ?? "[]"
+        issueTags = (try? JSONDecoder().decode([String].self,
+                                                from: Data(issuesStr.utf8))) ?? []
+        let dismissedStr: String = row[Columns.dismissedIssueTags] ?? "[]"
+        dismissedIssueTags = (try? JSONDecoder().decode([String].self,
+                                                from: Data(dismissedStr.utf8))) ?? []
+        duplicateOf = row[Columns.duplicateOf]
     }
 }

@@ -32,8 +32,12 @@ enum StampStore {
         }
     }
 
-    /// Rotate the crop PNG 90° clockwise (or counter-clockwise if negative)
-    /// and bump the record's rotationVersion so AsyncImage re-reads from disk.
+    /// Rotate the crop PNG on disk only. Intentionally does NOT write to
+    /// the DB: if we did, the grid's `@Query` would re-fetch and re-render
+    /// the entire LazyVGrid, breaking scroll position and the visual "just
+    /// this cell changed" feel. The AsyncImage cache buster uses file mtime
+    /// so the re-read happens automatically via URL differentiation.
+    /// Posts NotificationCenter so the affected cell can refresh locally.
     static func rotate(_ record: StampRecord, byDegrees degrees: Int) throws {
         let url = record.cropURL
         guard let image = NSImage(contentsOf: url) else { return }
@@ -41,13 +45,16 @@ enum StampStore {
         if let data = rotated.pngData() {
             try data.write(to: url, options: .atomic)
         }
-        var updated = record
-        updated.rotationVersion = record.rotationVersion + 1
-        updated.oriented = true
-        try LibraryDatabase.shared.write { db in
-            try updated.update(db)
-        }
+        NotificationCenter.default.post(
+            name: .stampCropRotated, object: record.id)
     }
+}
+
+extension Notification.Name {
+    /// Posted with `object = record.id (String)` when a crop PNG is
+    /// rewritten by the rotate button. Cells observe and bump their
+    /// AsyncImage cache-buster key to re-read the file.
+    static let stampCropRotated = Notification.Name("stampCropRotated")
 }
 
 private extension NSImage {
@@ -87,6 +94,11 @@ private extension NSImage {
 struct StampsRequest: ValueObservationQueryable {
     static var defaultValue: [StampRecord] { [] }
     var filter: LibraryFilter = .init()
+    /// Cache buster — bumped by `DatabaseWatcher` when the SQLite file is
+    /// modified by an external process (Python worker). The value is unused
+    /// inside `fetch`; its only job is to make the request compare unequal
+    /// so GRDBQuery re-subscribes and re-runs the fetch.
+    var externalTick: Int = 0
 
     func fetch(_ db: Database) throws -> [StampRecord] {
         var request = StampRecord.all()
@@ -99,10 +111,21 @@ struct StampsRequest: ValueObservationQueryable {
             request = request.filter(
                 StampRecord.Columns.country == nil
                 && StampRecord.Columns.year == nil)
+        case .partials:
+            // Tag-based now — IssueDetector marks these explicitly.
+            // Fall back to aspect ratio so the folder isn't empty before
+            // the user runs the detector.
+            request = request.filter(
+                sql: "issueTags LIKE '%\"partial\"%'"
+                     + " OR (MAX(cropW,cropH) * 1.0 / MIN(cropW,cropH)) > 2.2"
+                     + " OR cropW < 60 OR cropH < 60"
+            )
+        case .obscured:
+            request = request.filter(sql: "issueTags LIKE '%\"obscured\"%'")
         case .flagged:
             request = request.filter(StampRecord.Columns.flagged == true)
         case .duplicates:
-            return []
+            request = request.filter(sql: "issueTags LIKE '%\"duplicate\"%'")
         }
         if !filter.search.isEmpty {
             let q = "%\(filter.search.lowercased())%"
@@ -131,9 +154,13 @@ struct StampCountsRequest: ValueObservationQueryable {
         var all: Int = 0
         var recent: Int = 0
         var unidentified: Int = 0
+        var partials: Int = 0
+        var obscured: Int = 0
+        var duplicates: Int = 0
         var flagged: Int = 0
     }
     static var defaultValue: Counts { .init() }
+    var externalTick: Int = 0
 
     func fetch(_ db: Database) throws -> Counts {
         let cutoff = Date().addingTimeInterval(-86_400)
@@ -145,6 +172,17 @@ struct StampCountsRequest: ValueObservationQueryable {
             unidentified: StampRecord
                 .filter(StampRecord.Columns.country == nil
                         && StampRecord.Columns.year == nil)
+                .fetchCount(db),
+            partials: StampRecord
+                .filter(sql: "issueTags LIKE '%\"partial\"%'"
+                             + " OR (MAX(cropW,cropH) * 1.0 / MIN(cropW,cropH)) > 2.2"
+                             + " OR cropW < 60 OR cropH < 60")
+                .fetchCount(db),
+            obscured: StampRecord
+                .filter(sql: "issueTags LIKE '%\"obscured\"%'")
+                .fetchCount(db),
+            duplicates: StampRecord
+                .filter(sql: "issueTags LIKE '%\"duplicate\"%'")
                 .fetchCount(db),
             flagged: StampRecord
                 .filter(StampRecord.Columns.flagged == true)

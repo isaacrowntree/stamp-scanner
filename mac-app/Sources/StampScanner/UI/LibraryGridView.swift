@@ -5,16 +5,22 @@ struct LibraryGridView: View {
     let filter: LibraryFilter
     @Binding var selection: Set<String>
     let highlightJobId: String?
+    let dbTick: Int
 
     @Query<StampsRequest> private var records: [StampRecord]
 
     init(filter: LibraryFilter,
          selection: Binding<Set<String>>,
-         highlightJobId: String?) {
+         highlightJobId: String?,
+         dbTick: Int) {
         self.filter = filter
         self._selection = selection
         self.highlightJobId = highlightJobId
-        _records = Query(StampsRequest(filter: filter))
+        self.dbTick = dbTick
+        // `Query(constant:)` re-fetches when the request changes. Plain
+        // `Query(request)` captures the initial value and never updates —
+        // that's why our sort picker and search field were dead.
+        _records = Query(constant: StampsRequest(filter: filter, externalTick: dbTick))
     }
 
     var body: some View {
@@ -29,7 +35,11 @@ struct LibraryGridView: View {
                             GridCell(
                                 record: record,
                                 isSelected: selection.contains(record.id),
-                                isHighlighted: record.jobId == highlightJobId && highlightJobId != nil
+                                isHighlighted: record.jobId == highlightJobId && highlightJobId != nil,
+                                onDelete: {
+                                    try? StampStore.delete(record)
+                                    selection.remove(record.id)
+                                }
                             )
                             .id(record.id)
                             .onTapGesture(count: 2) { openQuickLook(record) }
@@ -66,6 +76,8 @@ struct LibraryGridView: View {
         case .all:          return "No stamps yet"
         case .recent:       return "Nothing scanned today"
         case .unidentified: return "Everything's identified"
+        case .partials:     return "No partial crops"
+        case .obscured:     return "No obscured crops"
         case .flagged:      return "Nothing flagged"
         case .duplicates:   return "No duplicates found"
         }
@@ -111,27 +123,39 @@ struct LibraryGridView: View {
     }
 }
 
-private struct RotateButtons: View {
+private struct CellActionBar: View {
     let record: StampRecord
+    let onDelete: () -> Void
     var body: some View {
-        HStack(spacing: 4) {
-            rotateButton("arrow.counterclockwise", degrees: -90)
-            rotateButton("arrow.up.arrow.down", degrees: 180)
-            rotateButton("arrow.clockwise", degrees: 90)
+        HStack(spacing: 2) {
+            actionButton("arrow.counterclockwise", tip: "Rotate left") {
+                try? StampStore.rotate(record, byDegrees: -90)
+            }
+            actionButton("arrow.up.arrow.down", tip: "Flip 180°") {
+                try? StampStore.rotate(record, byDegrees: 180)
+            }
+            actionButton("arrow.clockwise", tip: "Rotate right") {
+                try? StampStore.rotate(record, byDegrees: 90)
+            }
+            Divider().frame(height: 16).overlay(.white.opacity(0.3))
+            actionButton("trash", tip: "Delete", destructive: true) {
+                onDelete()
+            }
         }
-        .padding(4)
-        .background(.black.opacity(0.55), in: Capsule())
+        .padding(.horizontal, 4).padding(.vertical, 3)
+        .background(.black.opacity(0.75), in: Capsule())
     }
-    private func rotateButton(_ icon: String, degrees: Int) -> some View {
-        Button {
-            try? StampStore.rotate(record, byDegrees: degrees)
-        } label: {
+    private func actionButton(_ icon: String, tip: String,
+                               destructive: Bool = false,
+                               action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             Image(systemName: icon)
                 .font(.caption)
-                .foregroundStyle(.white)
-                .frame(width: 24, height: 24)
+                .foregroundStyle(destructive ? .red : .white)
+                .frame(width: 26, height: 26)
         }
         .buttonStyle(.plain)
+        .help(tip)
     }
 }
 
@@ -139,34 +163,45 @@ private struct GridCell: View {
     let record: StampRecord
     let isSelected: Bool
     let isHighlighted: Bool
+    let onDelete: () -> Void
     @State private var hovering = false
+    /// Local cache buster — bumped when StampStore.rotate posts for this
+    /// record's id. Keeps the disruption scoped to this one cell so the
+    /// grid layout doesn't reshuffle on rotation.
+    @State private var localRotationKey: Int = 0
+
+    private var displayURL: URL {
+        let base = record.cropURL
+        return URL(string: base.absoluteString + "?r=\(localRotationKey)") ?? base
+    }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            AsyncImage(url: record.cropDisplayURL) { phase in
-                switch phase {
-                case .success(let img): img.resizable().scaledToFit()
-                case .failure: Image(systemName: "photo").foregroundStyle(.secondary)
-                default: ProgressView().controlSize(.small)
-                }
+        // Outer container — white frame + selection stroke + shadow. The
+        // image + overlays live inside so hover chrome hugs the image
+        // itself, not the whole grid cell (previous bug: action bar
+        // floated at the bottom of the cell, far from the cursor).
+        AsyncImage(url: displayURL) { phase in
+            switch phase {
+            case .success(let img):
+                img.resizable().scaledToFit()
+            case .failure:
+                Image(systemName: "photo").foregroundStyle(.secondary)
+                    .frame(minHeight: 100)
+            default:
+                ProgressView().controlSize(.small).frame(minHeight: 100)
             }
-            .frame(maxWidth: .infinity, minHeight: 140)
-            .padding(8)
-            .background(.white)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(isSelected ? Color.accentColor :
-                                   (isHighlighted ? Color.yellow : Color.clear),
-                                   lineWidth: isSelected || isHighlighted ? 3 : 0)
-            )
-            .shadow(color: .black.opacity(hovering ? 0.25 : 0.10),
-                    radius: hovering ? 6 : 2, y: hovering ? 3 : 1)
-
+        }
+        .frame(maxWidth: .infinity)
+        .padding(8)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(alignment: .topLeading) {
             if record.flagged {
                 Image(systemName: "flag.fill")
                     .foregroundStyle(.orange).padding(6)
             }
+        }
+        .overlay(alignment: .topTrailing) {
             if record.confidence < 0.7 {
                 Text(String(format: "%.0f%%", record.confidence * 100))
                     .font(.caption2).bold().monospacedDigit()
@@ -175,17 +210,29 @@ private struct GridCell: View {
                     .background(.orange.opacity(0.85), in: Capsule())
                     .padding(6)
             }
-
+        }
+        .overlay(alignment: .bottom) {
             if hovering {
-                RotateButtons(record: record)
-                    .padding(6)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity,
-                           alignment: .bottom)
-                    .transition(.opacity)
+                CellActionBar(record: record, onDelete: onDelete)
+                    .padding(8)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(isSelected ? Color.accentColor :
+                               (isHighlighted ? Color.yellow : Color.clear),
+                               lineWidth: isSelected || isHighlighted ? 3 : 0)
+        )
+        .shadow(color: .black.opacity(hovering ? 0.25 : 0.10),
+                radius: hovering ? 6 : 2, y: hovering ? 3 : 1)
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
         .animation(.easeInOut(duration: 0.3), value: isHighlighted)
+        .onReceive(NotificationCenter.default.publisher(for: .stampCropRotated)) { note in
+            if (note.object as? String) == record.id {
+                localRotationKey &+= 1
+            }
+        }
     }
 }

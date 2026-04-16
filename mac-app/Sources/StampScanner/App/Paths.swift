@@ -12,14 +12,14 @@ enum Paths {
         return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     }()
 
-    static var runDir: URL     { projectRoot.appendingPathComponent(".run") }
-    static var inbox: URL      { runDir.appendingPathComponent("sam_inbox") }
-    static var outbox: URL     { runDir.appendingPathComponent("sam_outbox") }
-    static var workerLog: URL  { runDir.appendingPathComponent("sam_worker.log") }
-    static var pidFile: URL    { runDir.appendingPathComponent("sam_worker.pid") }
-    static var heartbeat: URL  { runDir.appendingPathComponent("sam_worker.heartbeat") }
-    static var samModel: URL   { projectRoot.appendingPathComponent("sam3.pt") }
-    static var pythonBin: URL  { projectRoot.appendingPathComponent(".venv/bin/python") }
+    static var runDir: URL { projectRoot.appendingPathComponent(".run") }
+    static var inbox: URL { runDir.appendingPathComponent("sam_inbox") }
+    static var outbox: URL { runDir.appendingPathComponent("sam_outbox") }
+    static var workerLog: URL { runDir.appendingPathComponent("sam_worker.log") }
+    static var pidFile: URL { runDir.appendingPathComponent("sam_worker.pid") }
+    static var heartbeat: URL { runDir.appendingPathComponent("sam_worker.heartbeat") }
+    static var samModel: URL { projectRoot.appendingPathComponent("sam3.pt") }
+    static var pythonBin: URL { projectRoot.appendingPathComponent(".venv/bin/python") }
     static var workerScript: URL { projectRoot.appendingPathComponent("tools/sam_worker.py") }
 
     /// Persistent storage for saved stamps: copied out of .run/sam_outbox/

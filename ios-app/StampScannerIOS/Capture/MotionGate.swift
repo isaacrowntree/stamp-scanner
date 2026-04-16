@@ -139,9 +139,9 @@ final class MotionGate: ObservableObject {
         let side: CGFloat = 512
         let cx = src.extent.midX
         let cy = src.extent.midY
-        let crop = src.cropped(to: CGRect(x: cx - side/2, y: cy - side/2,
+        let crop = src.cropped(to: CGRect(x: cx - side / 2, y: cy - side / 2,
                                            width: side, height: side))
-        let shift = CGAffineTransform(translationX: -(cx - side/2), y: -(cy - side/2))
+        let shift = CGAffineTransform(translationX: -(cx - side / 2), y: -(cy - side / 2))
         let centered = crop.transformed(by: shift)
         guard let luma = makeLuma(centered)?.cropped(to: CGRect(x: 0, y: 0, width: side, height: side)) else { return 0 }
         let k = CIFilter.convolution3X3()

@@ -1,0 +1,92 @@
+included:
+  - mac-app/Sources
+  - mac-app/Tests
+  - ios-app/StampScannerIOS
+
+excluded:
+  - mac-app/.build
+  - ios-app/StampScannerIOS.xcodeproj
+  - "**/.build"
+  - "**/DerivedData"
+
+# Tune the louder built-in rules — defaults are too strict for app code with
+# long SwiftUI view builders and Vision/CoreImage setup blocks.
+line_length:
+  warning: 140
+  error: 200
+  ignores_comments: true
+  ignores_urls: true
+  ignores_function_declarations: true
+  ignores_interpolated_strings: true
+
+function_body_length:
+  warning: 80
+  error: 160
+
+type_body_length:
+  warning: 400
+  error: 600
+
+file_length:
+  warning: 600
+  error: 1000
+  ignore_comment_only_lines: true
+
+cyclomatic_complexity:
+  warning: 15
+  error: 25
+
+identifier_name:
+  min_length: 1          # allow `i`, `j`, `r`, `d` in tight loops
+  max_length:
+    warning: 50
+    error: 60
+  excluded:
+    - id
+    - ci
+    - cg
+    - cs
+
+nesting:
+  type_level: 2
+
+# Disable rules that conflict with SwiftUI / this codebase's style.
+disabled_rules:
+  - todo                      # we use TODO/FIXME intentionally
+  - trailing_comma            # SwiftUI multiline arg lists read better without
+  - multiple_closures_with_trailing_closure  # noisy under SwiftUI
+
+# Opt into a few useful rules that ship opt-in.
+opt_in_rules:
+  - array_init
+  - closure_end_indentation
+  - closure_spacing
+  - collection_alignment
+  - contains_over_filter_count
+  - contains_over_filter_is_empty
+  - contains_over_first_not_nil
+  - empty_count
+  - empty_string
+  - explicit_init
+  - fallthrough
+  - fatal_error_message
+  - first_where
+  - force_unwrapping
+  - implicit_return
+  - joined_default_parameter
+  - last_where
+  - literal_expression_end_indentation
+  - modifier_order
+  - multiline_arguments
+  - operator_usage_whitespace
+  - overridden_super_call
+  - prefer_zero_over_explicit_init
+  - redundant_nil_coalescing
+  - redundant_type_annotation
+  - sorted_first_last
+  - static_operator
+  - toggle_bool
+  - unneeded_parentheses_in_closure_argument
+  - yoda_condition
+
+reporter: "xcode"

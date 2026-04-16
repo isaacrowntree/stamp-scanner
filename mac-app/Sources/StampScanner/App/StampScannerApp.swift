@@ -14,6 +14,8 @@ struct StampScannerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var worker = WorkerLauncher()
     @StateObject private var phoneServer = PhoneIngestServer()
+    @StateObject private var dbWatcher = DatabaseWatcher()
+    @StateObject private var issueDetector = IssueDetector()
 
     @State private var showPairing = false
 
@@ -22,6 +24,8 @@ struct StampScannerApp: App {
             RootView(showPairing: $showPairing)
                 .environmentObject(worker)
                 .environmentObject(phoneServer)
+                .environmentObject(dbWatcher)
+                .environmentObject(issueDetector)
                 .installDatabaseContext()
                 .frame(minWidth: 900, minHeight: 600)
                 .task {
@@ -30,6 +34,7 @@ struct StampScannerApp: App {
                     // to observe it.
                     _ = LibraryDatabase.shared
                     worker.start()
+                    dbWatcher.start()
                     phoneServer.start(mode: .lan)
                 }
         }

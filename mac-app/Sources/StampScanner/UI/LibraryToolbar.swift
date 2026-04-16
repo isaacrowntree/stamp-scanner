@@ -6,42 +6,44 @@ struct LibraryToolbar: ToolbarContent {
     @Binding var showInspector: Bool
     @Binding var vlmRunning: Bool
     @Binding var colnectRunning: Bool
+    @EnvironmentObject var issueDetector: IssueDetector
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
             TextField("Search", text: $filter.search)
                 .textFieldStyle(.roundedBorder)
                 .frame(minWidth: 180, maxWidth: 260)
+                .help("Search country, year, denomination, notes")
         }
         ToolbarItemGroup(placement: .primaryAction) {
-            Button {
-                runVLM()
-            } label: {
-                if vlmRunning {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Label("Identify", systemImage: "sparkles.rectangle.stack")
-                }
-            }
-            .help("Identify unprocessed stamps via Qwen3-VL")
-            .disabled(vlmRunning)
+            iconButton(
+                icon: "sparkles.rectangle.stack",
+                tip: "Identify unprocessed stamps via Qwen3-VL (slow, ~1 min each)",
+                busy: vlmRunning,
+                action: runVLM
+            )
 
-            Button {
-                runColnect()
-            } label: {
-                if colnectRunning {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Label("Colnect", systemImage: "books.vertical")
-                }
-            }
-            .help("Match identified stamps to Colnect catalogue (requires COLNECT_API_KEY)")
-            .disabled(colnectRunning)
+            iconButton(
+                icon: "exclamationmark.triangle",
+                tip: "Find quality issues — duplicates, obscured, partials (Apple Vision, ~1 s each)",
+                busy: issueDetector.running,
+                busyProgress: issueDetector.running ? issueDetector.progress : nil,
+                action: issueDetector.runAll
+            )
 
-            Picker("Sort", selection: $filter.sort) {
+            iconButton(
+                icon: "books.vertical",
+                tip: "Match identified stamps to Colnect catalogue (requires COLNECT_API_KEY)",
+                busy: colnectRunning,
+                action: runColnect
+            )
+
+            Picker(selection: $filter.sort) {
                 ForEach(SortOrder.allCases, id: \.self) { s in
                     Text(s.label).tag(s)
                 }
+            } label: {
+                Image(systemName: "arrow.up.arrow.down")
             }
             .pickerStyle(.menu)
             .help("Sort order")
@@ -51,8 +53,30 @@ struct LibraryToolbar: ToolbarContent {
             } label: {
                 Image(systemName: showInspector ? "sidebar.right" : "sidebar.trailing")
             }
-            .help("Toggle inspector")
+            .help(showInspector ? "Hide inspector" : "Show inspector")
         }
+    }
+
+    /// Icon-only toolbar button — macOS shows the `help` string as a
+    /// tooltip reliably when the Button's label has no visible text.
+    /// Labels-with-text suppress the tooltip in SwiftUI toolbars.
+    @ViewBuilder
+    private func iconButton(icon: String, tip: String,
+                             busy: Bool, busyProgress: Double? = nil,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            if busy {
+                if let p = busyProgress {
+                    ProgressView(value: p).progressViewStyle(.circular).controlSize(.small)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            } else {
+                Image(systemName: icon)
+            }
+        }
+        .help(tip)
+        .disabled(busy)
     }
 
     private func runVLM() {

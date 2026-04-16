@@ -93,4 +93,29 @@ trap kill_stale_workers EXIT INT TERM
 
 echo "[start] swift app (foreground; SAM 3 worker spawned by app)"
 cd mac-app
-STAMP_PROJECT_ROOT="$(cd .. && pwd)" swift run StampScanner
+swift build
+
+# Codesign the built binary with a stable identity so the keychain ACL
+# (see PairingStore) persists across rebuilds. Ad-hoc signatures change
+# CDHash every build, which invalidates "Always Allow" on the keychain
+# prompt. Signing with an Apple Development cert pins the designated
+# requirement to (leaf cert + identifier), both of which are stable.
+BIN=".build/debug/StampScanner"
+SIGN_ID="${STAMP_SIGNING_IDENTITY:-}"
+if [ -z "$SIGN_ID" ]; then
+  SIGN_ID=$(security find-identity -p codesigning -v \
+    | awk -F\" '/Apple Development/ {print $2; exit}')
+fi
+if [ -n "$SIGN_ID" ] && [ -x "$BIN" ]; then
+  if codesign --force --sign "$SIGN_ID" \
+      --identifier com.triptech.StampScanner \
+      "$BIN" >/dev/null 2>&1; then
+    echo "[sign] signed with: $SIGN_ID"
+  else
+    echo "[sign] warning: codesign failed; keychain will re-prompt"
+  fi
+else
+  echo "[sign] no Apple Development identity found; keychain will re-prompt"
+fi
+
+STAMP_PROJECT_ROOT="$(cd .. && pwd)" "$BIN"

@@ -89,4 +89,6 @@ enum PairingCode {
 @_silgen_name("CC_SHA256")
 private func CC_SHA256(_ data: UnsafeRawPointer?, _ len: CC_LONG,
                         _ md: UnsafeMutablePointer<UInt8>) -> UnsafeMutablePointer<UInt8>?
+// Name mirrors Apple's CommonCrypto typedef.
+// swiftlint:disable:next type_name
 private typealias CC_LONG = UInt32

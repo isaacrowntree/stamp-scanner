@@ -98,7 +98,11 @@ def ensure_db() -> sqlite3.Connection:
             flagged INTEGER NOT NULL DEFAULT 0,
             jobId TEXT NOT NULL DEFAULT '',
             perceptualHash INTEGER,
-            oriented INTEGER NOT NULL DEFAULT 0
+            oriented INTEGER NOT NULL DEFAULT 0,
+            rotationVersion INTEGER NOT NULL DEFAULT 0,
+            issueTags TEXT NOT NULL DEFAULT '[]',
+            dismissedIssueTags TEXT NOT NULL DEFAULT '[]',
+            duplicateOf TEXT
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_stamps_capturedAt ON stamps(capturedAt)")
@@ -492,10 +496,15 @@ def drain(args, conn: sqlite3.Connection) -> int:
                 os.rename(p, claimed)
             except FileNotFoundError:
                 continue
+            # Touch heartbeat before + after each job so the Swift launcher
+            # doesn't time us out mid-batch (jobs can take 10+ seconds and
+            # a backlog of 3+ easily exceeds the 20s stale threshold).
+            touch_heartbeat()
             try:
                 process(claimed, args, conn, real_stem=p.stem)
             finally:
                 claimed.unlink(missing_ok=True)
+            touch_heartbeat()
             n += 1
     return n
 

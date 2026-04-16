@@ -3,9 +3,16 @@ import GRDBQuery
 
 struct SidebarView: View {
     @Binding var filter: LibraryFilter
-    @Query(StampCountsRequest()) private var counts: StampCountsRequest.Counts
+    let dbTick: Int
+    @Query<StampCountsRequest> private var counts: StampCountsRequest.Counts
     @EnvironmentObject var server: PhoneIngestServer
     @State private var pairingCode: String = ""
+
+    init(filter: Binding<LibraryFilter>, dbTick: Int) {
+        self._filter = filter
+        self.dbTick = dbTick
+        _counts = Query(constant: StampCountsRequest(externalTick: dbTick))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,8 +54,10 @@ struct SidebarView: View {
         case .all:          return counts.all
         case .recent:       return counts.recent
         case .unidentified: return counts.unidentified
+        case .partials:     return counts.partials
+        case .obscured:     return counts.obscured
         case .flagged:      return counts.flagged
-        case .duplicates:   return 0
+        case .duplicates:   return counts.duplicates
         }
     }
 

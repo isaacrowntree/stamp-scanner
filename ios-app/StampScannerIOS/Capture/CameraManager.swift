@@ -28,6 +28,8 @@ final class CameraManager: NSObject, ObservableObject, @unchecked Sendable {
     @Published private(set) var permissionDenied = false
     @Published private(set) var currentLens: Lens = .wide
     @Published private(set) var availableLenses: [Lens] = []
+    @Published private(set) var torchOn = false
+    @Published private(set) var torchSupported = false
 
     let session = AVCaptureSession()
     private let videoOutput = AVCaptureVideoDataOutput()
@@ -66,6 +68,20 @@ final class CameraManager: NSObject, ObservableObject, @unchecked Sendable {
         ])
         settings.photoQualityPrioritization = .balanced
         photoOutput.capturePhoto(with: settings, delegate: self)
+    }
+
+    @MainActor
+    func toggleTorch() {
+        guard let device = currentDevice, device.hasTorch else { return }
+        try? device.lockForConfiguration()
+        if device.torchMode == .on {
+            device.torchMode = .off
+            torchOn = false
+        } else {
+            try? device.setTorchModeOn(level: 1.0)
+            torchOn = true
+        }
+        device.unlockForConfiguration()
     }
 
     @MainActor
@@ -127,6 +143,8 @@ final class CameraManager: NSObject, ObservableObject, @unchecked Sendable {
         }
         device.videoZoomFactor = Lens.ultraWide.zoomFactor
         device.unlockForConfiguration()
+
+        torchSupported = device.hasTorch
 
         videoOutput.videoSettings = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA

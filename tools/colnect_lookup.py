@@ -54,13 +54,35 @@ logging.basicConfig(level=logging.INFO,
 
 
 def _api_key() -> str | None:
-    """Read from env; run.sh already loads .env.local into the environment."""
     return os.environ.get("COLNECT_API_KEY")
 
 
+def _api_secret() -> str | None:
+    """Separate secret for the HMAC signature. Colnect issues both a key
+    (goes in URL path) and a secret (used to sign requests). If the user
+    only has one credential, we try signing with the key itself as a
+    fallback — some APIs work that way."""
+    return os.environ.get("COLNECT_API_SECRET") or os.environ.get("COLNECT_API_KEY")
+
+
 class ColnectClient:
-    def __init__(self, api_key: str):
+    """Colnect CAPI client with HMAC-SHA256 request signing.
+
+    Auth model per colnect.com/en/help/collecting/colnect_api:
+      - URL path includes {API_KEY}
+      - Each request sends Capi-Timestamp (Unix seconds) + Capi-Hash headers
+      - Capi-Hash is an HMAC computed over the canonical request string
+        using your secret
+
+    The exact canonical-string format is in the downloadable API Spec
+    (only available after key issuance). We default to HMAC-SHA256 over
+    "{timestamp}{path}" — the most common recipe. If the spec differs,
+    override `_compute_hash` accordingly.
+    """
+
+    def __init__(self, api_key: str, api_secret: str):
         self.api_key = api_key
+        self.api_secret = api_secret
         self.session = requests.Session()
         self._last_call = 0.0
 
@@ -70,12 +92,30 @@ class ColnectClient:
             time.sleep(REQUEST_INTERVAL_SEC - elapsed)
         self._last_call = time.time()
 
+    def _compute_hash(self, timestamp: str, path: str) -> str:
+        """HMAC-SHA256(secret, timestamp + path) → hex. Adjust to match
+        the exact recipe in your Colnect API Spec if they differ."""
+        import hmac, hashlib
+        msg = f"{timestamp}{path}".encode()
+        return hmac.new(self.api_secret.encode(), msg, hashlib.sha256).hexdigest()
+
     def _get(self, endpoint: str) -> object | None:
         self._throttle()
-        url = f"{COLNECT_API_BASE}/{COLNECT_LANG}/api/{self.api_key}/{endpoint}"
+        path = f"/{COLNECT_LANG}/api/{self.api_key}/{endpoint}"
+        url = f"{COLNECT_API_BASE}{path}"
+        timestamp = str(int(time.time()))
+        headers = {
+            "Capi-Timestamp": timestamp,
+            "Capi-Hash": self._compute_hash(timestamp, path),
+        }
         try:
-            r = self.session.get(url, timeout=15)
+            r = self.session.get(url, timeout=15, headers=headers)
             if r.status_code == 404:
+                return None
+            if r.status_code == 401 or r.status_code == 403:
+                log.error("Colnect auth rejected (%s): check COLNECT_API_SECRET "
+                          "and _compute_hash() matches the API spec. Response: %s",
+                          r.status_code, r.text[:200])
                 return None
             if r.status_code != 200:
                 log.warning("Colnect %s returned %s", endpoint, r.status_code)
@@ -203,10 +243,12 @@ def main():
     args = ap.parse_args()
 
     key = _api_key()
+    secret = _api_secret()
     if not key:
-        log.error("COLNECT_API_KEY not set. Add it to .env.local:")
+        log.error("COLNECT_API_KEY not set. Add to .env.local:")
         log.error("    COLNECT_API_KEY=your_key_here")
-        log.error("Apply for a key: https://colnect.com/en/help/collecting/colnect_api")
+        log.error("    COLNECT_API_SECRET=your_secret_here  # if issued separately")
+        log.error("Apply: https://colnect.com/en/help/collecting/colnect_api")
         sys.exit(1)
 
     if not DB_PATH.exists():
@@ -234,7 +276,7 @@ def main():
 
     log.info("matching %d stamp(s) via Colnect%s",
              len(rows), " (dry run)" if args.dry_run else "")
-    client = ColnectClient(key)
+    client = ColnectClient(key, secret)
     matched = 0
     for row in rows:
         if lookup_and_update(conn, client, dict(row), args.dry_run):

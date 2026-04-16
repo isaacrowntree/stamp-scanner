@@ -250,7 +250,7 @@ final class PhoneIngestServer: ObservableObject {
             }
             idx = r.upperBound
             if idx + 2 <= body.count {
-                let peek = body.subdata(in: idx..<min(idx+2, body.count))
+                let peek = body.subdata(in: idx..<min(idx + 2, body.count))
                 if peek == Data("--".utf8) { break }
                 if peek == Data("\r\n".utf8) { idx += 2 }
             }

@@ -3,11 +3,13 @@ import GRDBQuery
 
 struct DetailPanel: View {
     let selection: Set<String>
+    let dbTick: Int
     @Query<StampsRequest> private var all: [StampRecord]
 
-    init(selection: Set<String>) {
+    init(selection: Set<String>, dbTick: Int) {
         self.selection = selection
-        _all = Query(StampsRequest(filter: LibraryFilter()))
+        self.dbTick = dbTick
+        _all = Query(constant: StampsRequest(filter: LibraryFilter(), externalTick: dbTick))
     }
 
     var body: some View {
@@ -42,15 +44,22 @@ private struct SingleDetail: View {
     let record: StampRecord
     @State private var draft: StampRecord
 
+    @State private var localRotationKey: Int = 0
+
     init(record: StampRecord) {
         self.record = record
         self._draft = State(initialValue: record)
     }
 
+    private var displayURL: URL {
+        let base = record.cropURL
+        return URL(string: base.absoluteString + "?r=\(localRotationKey)") ?? base
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                AsyncImage(url: record.cropDisplayURL) { phase in
+                AsyncImage(url: displayURL) { phase in
                     switch phase {
                     case .success(let img): img.resizable().scaledToFit()
                     default: ProgressView().frame(height: 180)
@@ -58,6 +67,11 @@ private struct SingleDetail: View {
                 }
                 .background(.white)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                .onReceive(NotificationCenter.default.publisher(for: .stampCropRotated)) { note in
+                    if (note.object as? String) == record.id {
+                        localRotationKey &+= 1
+                    }
+                }
 
                 HStack(spacing: 8) {
                     Button {
@@ -162,6 +176,26 @@ private struct SingleDetail: View {
                         .frame(minHeight: 60)
                         .font(.callout)
                 }
+
+                // When the user wires in a Colnect API key, uncomment the
+                // block below. Required by Colnect ToS clause 10.G:
+                // "You are required to mention Colnect as a source of
+                // information used for your product by including the
+                // following statement on your application's website or
+                // as a part of your application in a visible place:
+                // 'Catalog information courtesy of Colnect, an online
+                // collectors community.' and have a link to any page on
+                // Colnect that you find most relevant."
+                //
+                // if record.catalogueRef?.starts(with: "Colnect") == true {
+                //     HStack(spacing: 4) {
+                //         Text("Catalog information courtesy of")
+                //         Link("Colnect", destination: URL(string: "https://colnect.com/en/stamps")!)
+                //         Text("— an online collectors community.")
+                //     }
+                //     .font(.caption2)
+                //     .foregroundStyle(.tertiary)
+                // }
 
                 GroupBox("Capture") {
                     VStack(alignment: .leading, spacing: 4) {
