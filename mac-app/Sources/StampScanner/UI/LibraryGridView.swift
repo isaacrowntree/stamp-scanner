@@ -101,6 +101,14 @@ struct LibraryGridView: View {
         Button("Rotate Left") { try? StampStore.rotate(record, byDegrees: -90) }
         Button("Rotate Right") { try? StampStore.rotate(record, byDegrees: 90) }
         Button("Flip 180°") { try? StampStore.rotate(record, byDegrees: 180) }
+        if !record.issueTags.isEmpty {
+            Divider()
+            ForEach(record.issueTags, id: \.self) { tag in
+                Button("Not actually \(tag)") {
+                    try? IssueDetector.dismissTag(tag, on: record)
+                }
+            }
+        }
         Divider()
         Button(record.flagged ? "Unflag" : "Flag") {
             var r = record; r.flagged.toggle()

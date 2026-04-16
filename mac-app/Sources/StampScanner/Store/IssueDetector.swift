@@ -205,6 +205,53 @@ final class IssueDetector: ObservableObject {
         }
     }
 
+    // MARK: - User overrides (called from UI)
+
+    /// Add a tag to the record's dismissed list and remove it from the
+    /// current issueTags. Idempotent. The detector will not re-add a
+    /// dismissed tag on its next run.
+    static func dismissTag(_ tag: String, on record: StampRecord) throws {
+        try LibraryDatabase.shared.write { db in
+            var updated = record
+            var dismissed = Set(updated.dismissedIssueTags)
+            dismissed.insert(tag)
+            updated.dismissedIssueTags = Array(dismissed).sorted()
+            updated.issueTags = updated.issueTags.filter { $0 != tag }
+            if tag == "duplicate" { updated.duplicateOf = nil }
+            try updated.update(db)
+        }
+    }
+
+    /// Let the detector flag this tag on this record again on its next run.
+    static func unDismissTag(_ tag: String, on record: StampRecord) throws {
+        try LibraryDatabase.shared.write { db in
+            var updated = record
+            updated.dismissedIssueTags.removeAll { $0 == tag }
+            try updated.update(db)
+        }
+    }
+
+    /// Returns the records related to `record` by the duplicate relation:
+    ///   - if `record.duplicateOf` is set, returns the keeper
+    ///   - any other records where `duplicateOf == record.id` (i.e. this
+    ///     record IS a keeper and these are its followers)
+    static func relatedDuplicates(of record: StampRecord) throws -> [StampRecord] {
+        try LibraryDatabase.shared.read { db in
+            var out: [StampRecord] = []
+            if let keeperId = record.duplicateOf {
+                if let keeper = try StampRecord.fetchOne(db, key: keeperId) {
+                    out.append(keeper)
+                }
+            }
+            let me = record.id
+            let followers = try StampRecord
+                .filter(StampRecord.Columns.duplicateOf == me)
+                .fetchAll(db)
+            out.append(contentsOf: followers)
+            return out
+        }
+    }
+
     // MARK: - Checks
 
     private func quality(_ r: StampRecord) -> Double {

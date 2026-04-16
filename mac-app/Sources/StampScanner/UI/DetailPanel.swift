@@ -92,6 +92,10 @@ private struct SingleDetail: View {
                 }
                 .controlSize(.small)
 
+                if !record.issueTags.isEmpty || !record.dismissedIssueTags.isEmpty {
+                    IssuesSection(record: record)
+                }
+
                 GroupBox("Identification") {
                     VStack(spacing: 8) {
                         Field("Country", text: bind(\.country))
@@ -251,6 +255,111 @@ private struct SingleDetail: View {
             Text(value).lineLimit(1).truncationMode(.middle)
             Spacer()
         }
+    }
+}
+
+private struct IssuesSection: View {
+    let record: StampRecord
+    @State private var related: [StampRecord] = []
+
+    private static let labels: [String: String] = [
+        "duplicate": "Duplicate",
+        "obscured":  "Obscured",
+        "partial":   "Partial crop",
+    ]
+
+    var body: some View {
+        GroupBox("Issues") {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(record.issueTags, id: \.self) { tag in
+                    issueRow(tag: tag, dismissed: false)
+                }
+                ForEach(record.dismissedIssueTags, id: \.self) { tag in
+                    issueRow(tag: tag, dismissed: true)
+                }
+
+                // Related duplicates
+                if !related.isEmpty {
+                    Divider().padding(.vertical, 2)
+                    Text(record.duplicateOf != nil
+                         ? "Duplicate of:"
+                         : "This stamp's duplicates:")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ForEach(related, id: \.id) { r in
+                        RelatedRecordChip(record: r)
+                    }
+                }
+            }
+        }
+        .onAppear(perform: loadRelated)
+        .onChange(of: record.id) { _, _ in loadRelated() }
+        .onChange(of: record.issueTags) { _, _ in loadRelated() }
+    }
+
+    private func issueRow(tag: String, dismissed: Bool) -> some View {
+        HStack {
+            Image(systemName: dismissed ? "checkmark.circle" : "exclamationmark.triangle.fill")
+                .foregroundStyle(dismissed ? .green : .orange)
+            Text(Self.labels[tag] ?? tag.capitalized)
+                .strikethrough(dismissed)
+            Spacer()
+            if dismissed {
+                Button("Re-enable") {
+                    try? IssueDetector.unDismissTag(tag, on: record)
+                }
+                .controlSize(.small)
+                .help("Allow the detector to flag this issue again")
+            } else {
+                Button("Not actually \(Self.labels[tag]?.lowercased() ?? tag)") {
+                    try? IssueDetector.dismissTag(tag, on: record)
+                }
+                .controlSize(.small)
+                .help("Remove this flag and prevent the detector from re-adding it")
+            }
+        }
+        .font(.callout)
+    }
+
+    private func loadRelated() {
+        related = (try? IssueDetector.relatedDuplicates(of: record)) ?? []
+    }
+}
+
+private struct RelatedRecordChip: View {
+    let record: StampRecord
+    var body: some View {
+        HStack(spacing: 8) {
+            AsyncImage(url: record.cropURL) { phase in
+                switch phase {
+                case .success(let img): img.resizable().scaledToFit()
+                default: Color.gray.opacity(0.2)
+                }
+            }
+            .frame(width: 48, height: 48)
+            .background(.white)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text([record.country, record.year.map(String.init),
+                       record.denomination]
+                        .compactMap { $0 }
+                        .joined(separator: " · "))
+                    .font(.caption).lineLimit(1)
+                Text(record.id)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            Button(role: .destructive) {
+                try? StampStore.delete(record)
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Delete this related record")
+        }
+        .padding(6)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
     }
 }
 
