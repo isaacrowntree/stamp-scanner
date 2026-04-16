@@ -1,0 +1,33 @@
+name: StampScannerIOS
+options:
+  bundleIdPrefix: com.triptech
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+    TARGETED_DEVICE_FAMILY: "1,2"
+
+targets:
+  StampScannerIOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: StampScannerIOS
+    info:
+      path: StampScannerIOS/Info.plist
+      properties:
+        CFBundleDisplayName: Stamp Scanner
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSCameraUsageDescription: "Capture stamp photos to send to the paired Mac."
+        NSLocalNetworkUsageDescription: "Discover your Mac running Stamp Scanner on the local network."
+        NSBonjourServices: ["_stampscanner._tcp"]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.triptech.StampScannerIOS

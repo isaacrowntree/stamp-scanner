@@ -1,0 +1,36 @@
+# Secrets
+.env
+.env.local
+
+# macOS
+.DS_Store
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# SAM 3 weights — 3.4GB, downloaded on first run
+sam3.pt
+sam2.1*.pt
+
+# Runtime scratch
+.run/
+captures/
+screenshots/
+test-output/
+
+# Swift build artifacts
+mac-app/.build/
+mac-app/.swiftpm/
+mac-app/Package.resolved
+
+# iOS generated Xcode project (recreate with `xcodegen` from project.yml)
+ios-app/*.xcodeproj/
+ios-app/*.xcworkspace/
+ios-app/StampScannerIOS/Info.plist
+
+# Misc
+*.log
+*.tmp
