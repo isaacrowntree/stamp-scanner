@@ -31,6 +31,10 @@ ios-app/*.xcodeproj/
 ios-app/*.xcworkspace/
 ios-app/StampScannerIOS/Info.plist
 
+# Colnect catalogue mirror (per Colnect ToS 10.E, content must not be
+# redistributed and must be deleted if license is revoked).
+.stamp-scanner/
+
 # Misc
 *.log
 *.tmp
